@@ -50,25 +50,19 @@ impl<'tcx, 'ctx> TranslateCtx<'tcx, 'ctx> {
             FullDefKind::Trait { .. } => {
                 let _ = self.register_trait_decl_id(&None, def_id);
             }
-            FullDefKind::Impl {
-                items,
-                impl_subject,
-                ..
-            } => match impl_subject {
-                hax::ImplSubject::Trait { .. } => {
-                    let _ = self.register_trait_impl_id(&None, def_id);
-                }
-                hax::ImplSubject::Inherent { .. } => {
-                    if explore_inside {
-                        for (item, _) in items {
-                            self.register_local_item((&item.def_id).into());
-                        }
-                    }
-                }
-            },
+            FullDefKind::TraitImpl { .. } => {
+                let _ = self.register_trait_impl_id(&None, def_id);
+            }
             // TODO: trait aliases (https://github.com/AeneasVerif/charon/issues/366)
             FullDefKind::TraitAlias { .. } => {}
 
+            FullDefKind::InherentImpl { items, .. } => {
+                if explore_inside {
+                    for (_, item_def) in items {
+                        self.register_local_item(item_def.rust_def_id());
+                    }
+                }
+            }
             FullDefKind::Mod { items, .. } => {
                 // Explore the module, only if it was not marked as "opaque"
                 // TODO: we may want to accumulate the set of modules we found, to check that all
@@ -279,7 +273,7 @@ pub fn translate<'tcx, 'ctx>(
         },
         id_map: Default::default(),
         reverse_id_map: Default::default(),
-        priority_queue: Default::default(),
+        items_to_translate: Default::default(),
         translate_stack: Default::default(),
         cached_path_elems: Default::default(),
         cached_names: Default::default(),
@@ -293,7 +287,7 @@ pub fn translate<'tcx, 'ctx>(
 
     trace!(
         "Queue after we explored the crate:\n{:?}",
-        &ctx.priority_queue
+        &ctx.items_to_translate
     );
 
     // Translate.
@@ -305,7 +299,7 @@ pub fn translate<'tcx, 'ctx>(
     // Note that the order in which we translate the definitions doesn't matter:
     // we never need to lookup a translated definition, and only use the map
     // from Rust ids to translated ids.
-    while let Some((ord_id, trans_id)) = ctx.priority_queue.pop_first() {
+    while let Some((ord_id, trans_id)) = ctx.items_to_translate.pop_first() {
         trace!("About to translate id: {:?}", ord_id);
         ctx.translate_item(ord_id.get_id(), trans_id);
     }
